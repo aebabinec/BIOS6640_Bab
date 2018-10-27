@@ -1,0 +1,246 @@
+---
+title: "BIOS6640:R Project"
+author: "Ana Babinec"
+date: "October 26, 2018"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+op <- par()
+options(width=80)
+emptyenv()
+rm(list=ls())
+```
+```{r data, include=TRUE ,warning=FALSE}
+setwd("~/BIOS 6640/Final R Project")
+library(RColorBrewer)
+library(sp)
+library(maptools) 
+library(lattice)
+library(latticeExtra) # For layer()
+library(rgdal)
+##Load the data##
+getwd()
+alldata<-read.csv("MozSyntheticMalaria.csv")
+```
+```{r dataclean, include=TRUE, warning=FALSE}
+alldata2<-subset(alldata, Epiyear< 2017)
+
+##create under 5 cases variable##
+alldata2$under5<-(alldata2$malaria/(alldata2$u5weight*alldata2$Population_UN)*1000)
+#gathers together weeks
+cpt <- as.data.frame(tapply(alldata2$under5, list(alldata2$Province, alldata2$Epiyear), sum))
+colnames(cpt) <- c("cpt10", "cpt11", "cpt12", "cpt13", "cpt14", "cpt15", "cpt16")
+
+rainTot <- as.data.frame(tapply(alldata2$rainTot, list(alldata2$Province, alldata2$Epiyear), sum))
+colnames(rainTot) <- c("rain10", "rain11", "rain12", "rain13", "rain14", "rain15", "rain16")
+
+tavg <- as.data.frame(tapply(alldata2$tavg, list(alldata2$Province, alldata2$Epiyear), mean))
+colnames(tavg) <- c("t10", "t11", "t12", "t13", "t14", "t15", "t16")
+
+allStats <- as.data.frame(cbind(cpt, rainTot, tavg))
+
+
+##take out City province thats duplicate##
+allStats2<-allStats[-6,]
+
+rownames(allStats2)<-c("Cabo Delgado", "Gaza", "Inhambane", "Manica", "Maputo", "Nampula", "Nassa", "Sofala", "Tete", "Zambezia")
+
+```
+```{r importshape, include=TRUE, warning=FALSE}
+
+#library(rgdal)
+#poly1<-readOGR( "mozambique_admin1.shp")
+
+poly1<-readShapePoly('mozambique_admin1.shp', IDvar="NAME1")
+plot(poly1)
+
+```
+```{r poly}
+polydat <- SpatialPolygonsDataFrame(poly1, allStats2)
+
+
+tempPal <- brewer.pal(n = 7, name = "YlOrRd")
+rainPal <- brewer.pal(n = 7, name = "YlGnBu")
+my.palette <- brewer.pal(n = 7, name = "OrRd")
+
+library(classInt)
+
+```
+```{r CPTMap,fig.height=10, fig.width=10}
+spplot(polydat, c("cpt10","cpt11", "cpt12", "cpt13", "cpt14", "cpt15", "cpt16"), 
+       names.attr = c("2010","2011", "2012", "2013", "2014", "2015", "2016"), 
+       colorkey=list(space="right"), scales = list(draw = TRUE),
+       main = "Average under 5 Incident Malaria cases by Epiyear", 
+       as.table = TRUE, col.regions = tempPal, col="black", cuts=6)
+
+```
+```{r TEMPmap, fig.height=10, fig.width=10}
+spplot(polydat, c("t10","t11", "t12", "t13", "t14", "t15", "t16"), 
+       names.attr = c("2010","2011", "2012", "2013", "2014", "2015", "2016"), 
+       colorkey=list(space="right"), scales = list(draw = TRUE), 
+       main = "Average  temperature (Celcius) by year", 
+       as.table = TRUE, col.regions = rainPal, col="black", cuts=6)
+
+```
+
+```{r RAINMap, fig.height=10, fig.width=10}
+spplot(polydat, c("rain10", "rain11", "rain12", "rain13", "rain14", "rain15", "rain16"), 
+       names.attr = c("2010","2011", "2012", "2013", "2014", "2015", "2016"), 
+       colorkey=list(space="right"), scales = list(draw = TRUE), 
+       main = "Average rainfall (mm) by year", 
+       as.table = TRUE, col.regions = rainPal, col="black", cuts=6)
+
+```
+
+```{r lagvar, include=TRUE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(stats)
+
+data.lag <- alldata2 %>%
+  group_by(DISTCODE) %>% 
+  mutate(raintot2 = lag(rainTot, 2), ## 2 week lag
+         raintot4 = lag(rainTot, 4), ## 4 week lag
+         raintot8 = lag(rainTot, 8), ## 8 week lag
+         tavg2= lag(tavg, 2), ## 2 week lag
+         tavg4 = lag(tavg, 4), ## 4 week lag
+         tavg8 = lag(tavg, 8)) ## 8 week lag
+```
+```{r allLAGplotRAIN, include=TRUE}
+ggplot(data = data.lag) + 
+  geom_smooth(mapping = (aes(x = Epiweek, y = under5, colour="Under 5 malaria")), linetype="longdash") +
+  geom_smooth(mapping = aes(x = Epiweek, y = rainTot, colour="No lag"))+
+  geom_smooth(mapping = aes(x = Epiweek, y = raintot2, colour="Lag 2 weeks")) +
+  geom_smooth(mapping = aes(x = Epiweek, y = raintot4, colour="Lag 4 weeks")) +
+  geom_smooth(mapping = aes(x = Epiweek, y = raintot8, colour="Lag 8 weeks")) +
+  scale_colour_manual("", values = c("Under 5 malaria" ="black", "No lag" ="orange","Lag 2 weeks" ="purple","Lag 4 weeks"="green", "Lag 8 weeks" = "blue"))+
+   facet_wrap(~ Region, nrow=2) +
+  scale_y_continuous(sec.axis = sec_axis(~.*2, name = "Total rain (mm) with various lag-effect")) +
+  labs(x = "Epidemiology week", y = "Cases under 5 per 1,000")
+
+
+```
+```{r allLAGplotTEMP, include=TRUE}
+ggplot(data = data.lag) + 
+  geom_smooth(mapping = (aes(x = Epiweek, y = under5, colour="Under 5 malaria")), linetype="longdash") +
+  geom_smooth(mapping = aes(x = Epiweek, y = tavg, colour="No lag"))+
+  geom_smooth(mapping = aes(x = Epiweek, y = tavg2, colour="Lag 2 weeks")) +
+  geom_smooth(mapping = aes(x = Epiweek, y = tavg4, colour="Lag 4 weeks")) +
+  geom_smooth(mapping = aes(x = Epiweek, y = tavg8, colour="Lag 8 weeks")) +
+  scale_colour_manual("", values = c("Under 5 malaria" ="black", "No lag" ="orange","Lag 2 weeks" ="purple","Lag 4 weeks"="green", "Lag 8 weeks" = "blue"))+
+  facet_wrap(~ Region, nrow=2) +
+  scale_y_continuous(sec.axis = sec_axis(~.*2, name = "Average temp (Celsius) with various lag-effect")) +
+  labs(x = "Epidemiology week", y = "Cases under 5 per 1,000")
+
+```
+```{r CORRmatrix, include=TRUE, warning=FALSE}
+##Correlation plot of lagged variables with under5##
+limdat <- data.lag[c(27,28,29,30,31,32,33,12,13)]
+cormat <- round(cor(limdat, use="complete.obs"),2)
+
+# Get lower triangle of the correlation matrix
+get_lower_tri<-function(cormat){
+  cormat[upper.tri(cormat)] <- NA
+  return(cormat)
+}
+# Get upper triangle of the correlation matrix
+get_upper_tri <- function(cormat){
+  cormat[lower.tri(cormat)]<- NA
+  return(cormat)
+}
+
+library(reshape2)
+melted_cormat <- melt(cormat)
+head(melted_cormat)
+upper_tri <- get_upper_tri(cormat)
+upper_tri
+# Melt the correlation matrix
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# Heatmap
+library(ggplot2)
+ggplot(data = melted_cormat, aes(Var2, Var1, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1))+
+  coord_fixed()
+melted_cormat
+
+
+```
+
+```{r percentchange, include=TRUE, warning=FALSE}
+library(stats)
+cpt<-aggregate(data.lag$under5, by=list(Category=data.lag$Epiyear), FUN=sum)
+colnames(cpt) <-c("Year", "cpt")
+temp<-aggregate(data.lag$tavg8, na.rm=TRUE, by=list(Category=data.lag$Epiyear), FUN=sum)
+colnames(temp)<-c("Year", "temp8")
+rain<-aggregate(data.lag$raintot4, na.rm=TRUE, by=list(Category=data.lag$Epiyear), FUN=sum)
+colnames(rain)<-c("Year", "rain4")
+rain2<-rain[-c(1)]
+temp2<-temp[-c(1)]
+cpt2<-cpt[-c(1)]
+prediff<-ts(as.data.frame(cbind(cpt2, temp2, rain2)),start=c(2010, 1), frequency=1)
+prediff
+getdiff<-diff(prediff) /prediff[-nrow(prediff),]*100
+head(getdiff)
+#Add variable for Epiyear (xaxis)#
+Epiyear<-c("2011", "2012", "2013", "2014", "2015", "2016")
+graphdiff<-as.data.frame(cbind(getdiff,Epiyear))
+graphdata<-as.data.frame(graphdiff)
+graphdata$temp8<-as.numeric(levels(graphdata$getdiff.temp8))[graphdata$getdiff.temp8]
+graphdata$rain4<-as.numeric(levels(graphdata$getdiff.rain4))[graphdata$getdiff.rain4]
+graphdata$cpt<-as.numeric(levels(graphdata$getdiff.cpt))[graphdata$getdiff.cpt]
+graphdata$Year<-as.numeric(levels(graphdata$Epiyear))[graphdata$Epiyear]
+
+
+```
+```{rgraphchange, include=TRUE}
+library(ggplot2)
+ggplot(data=graphdata) +
+    geom_smooth(mapping = aes(x=Epiyear, y=cpt), color="black")+
+    geom_smooth(mapping = aes(x=Epiyear, y =temp8),color= "red")+
+    geom_smooth(mapping= aes(x=Epiyear, y =rain4), color="blue")+
+  labs(x = "Epidemiology year", y = "Percent change from prior year")
+
+```
+
+```{r extraplots, include =TRUE}
+##Plot of rain TEMP epi week cpt and region ##
+library(ggplot2)
+ggplot(data = alldata2) + 
+  geom_smooth(mapping = aes(x = Epiweek, y = under5, color="Under 5 Malaria")) +
+  geom_smooth(mapping = aes(x = Epiweek, y = rainTot, color="Weekly total rain (mm)")) +
+  geom_smooth(mapping =aes(x=Epiweek, y=tavg, color = "Average Weekly temperature(Celcius)"))+
+  scale_colour_manual("", values = c("Under 5 Malaria" ="red", "Weekly total rain (mm)" ="blue", "Average Weekly temperature(Celcius)"="green"))+
+  facet_wrap(~ Region, nrow=2) +
+  scale_y_continuous(sec.axis = sec_axis(~.*2, name = "Weekly total rain (mm)")) +
+  labs(x = "Epidemiology week", y = "Incidence cases under 5 per 1,000")
+
+#PLOT OF Under5 vs rain vs tavg
+ggplot(data = alldata2) + 
+  geom_smooth(mapping = aes(x = tavg, y = under5, color="Under 5 Malaria")) +
+  geom_smooth(mapping = aes(x = tavg, y = rainTot, color="Weekly total rain (mm)")) +
+  #geom_smooth(mapping =aes(x=Epiweek, y=tavg, color = "Average Weekly temperature(Celcius)"))+
+  scale_colour_manual("", values = c("Under 5 Malaria" ="red", "Weekly total rain (mm)" ="blue", "Average Weekly temperature(Celcius)"="green"))+
+  scale_y_continuous(sec.axis = sec_axis(~.*2, name = "Weekly total rain (mm)")) 
+  #labs(x = "Epidemiology week", y = "Incidence cases under 5 per 1,000")
+
+
+```
+
+
+
+
+
+
